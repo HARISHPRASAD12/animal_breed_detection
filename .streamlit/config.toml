@@ -1,11 +1,23 @@
 [theme]
-base = "light"
-primaryColor = "#287553"
-backgroundColor = "#f8faf6"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#20342a"
+base = "dark"
+primaryColor = "#00743B"
+backgroundColor = "#0D2C1E"
+secondaryBackgroundColor = "#204936"
+textColor = "#FAF5E9"
+borderColor = "#648C75"
+linkColor = "#FFCC00"
+greenColor = "#009B4D"
+greenTextColor = "#B7F3CE"
+greenBackgroundColor = "#164D31"
+yellowColor = "#FFCC00"
+yellowBackgroundColor = "#FFCC00"
+yellowTextColor = "#302600"
 font = "sans serif"
-headingFont = "sans serif"
+headingFont = "serif"
+headingFontSizes = ["2.75rem", "1.65rem", "1.25rem"]
 baseRadius = "large"
-buttonRadius = "large"
+buttonRadius = "medium"
+showWidgetBorder = true
+showSidebarBorder = true
+paddingTop = "1.5rem"
 

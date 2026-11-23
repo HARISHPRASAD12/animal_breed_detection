@@ -1,69 +1,88 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import argparse
+import hashlib
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import tensorflow as tf
 
-from preprocessing import DATA_DIR, IMAGE_SIZE, create_demo_dataset, load_image_dataset, save_class_names
+from health import IMAGE_SIZE, ROOT, SKIN_MODEL
 
-MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
+CLASSES = ["no_visible_abnormality", "visible_abnormality"]
+SPLITS = ("train", "val", "test")
+EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
 
 
-def build_health_model() -> tf.keras.Model:
-    base_model = tf.keras.applications.MobileNetV2(
-        input_shape=(IMAGE_SIZE[0], IMAGE_SIZE[1], 3),
-        include_top=False,
-        weights="imagenet",
-        pooling="avg",
+def validate_splits(root: Path) -> None:
+    seen = {}
+    for split in SPLITS:
+        for label in CLASSES:
+            files = [
+                path for path in (root / split / label).rglob("*")
+                if path.is_file() and path.suffix.lower() in EXTENSIONS
+            ]
+            if not files:
+                raise ValueError(f"No labeled images in {root / split / label}")
+            for path in files:
+                checksum = hashlib.sha256(path.read_bytes()).digest()
+                group = (split, label)
+                if checksum in seen and seen[checksum] != group:
+                    raise ValueError(f"Duplicate image across splits or labels in {path}")
+                seen[checksum] = group
+
+
+def train(root: Path, epochs: int) -> dict[str, float]:
+    validate_splits(root)
+    if root.resolve().is_relative_to(ROOT / "data" / "health"):
+        raise ValueError("Use a separate labeled cattle-photo dataset.")
+
+    datasets = {
+        split: tf.keras.utils.image_dataset_from_directory(
+            root / split, class_names=CLASSES, label_mode="binary",
+            image_size=IMAGE_SIZE, batch_size=16, shuffle=split == "train", seed=42,
+        )
+        for split in SPLITS
+    }
+    tf.keras.utils.set_random_seed(42)
+    base = tf.keras.applications.MobileNetV2(
+        input_shape=(*IMAGE_SIZE, 3), include_top=False, pooling="avg", weights="imagenet",
     )
-    base_model.trainable = False
-
-    inputs = tf.keras.Input(shape=(IMAGE_SIZE[0], IMAGE_SIZE[1], 3))
-    x = base_model(inputs, training=False)
-    x = tf.keras.layers.Dense(64, activation="relu")(x)
-    outputs = tf.keras.layers.Dense(1, activation="sigmoid")(x)
-
+    base.trainable = False
+    inputs = tf.keras.Input(shape=(*IMAGE_SIZE, 3))
+    normalized = tf.keras.layers.Rescaling(1 / 127.5, offset=-1)(inputs)
+    features = base(normalized, training=False)
+    outputs = tf.keras.layers.Dense(1, activation="sigmoid")(features)
     model = tf.keras.Model(inputs, outputs)
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        loss=tf.keras.losses.BinaryCrossentropy(),
-        metrics=["accuracy"],
-    )
-    return model
-
-
-def train_health() -> tuple[str, list[str]]:
-    health_dir = DATA_DIR / "health"
-    has_images = any((health_dir / "train" / label).glob("*.png") for label in ["indicator_absent", "indicator_present"])
-    if not has_images:
-        create_demo_dataset(DATA_DIR)
-
-    train_ds, val_ds, test_ds = load_image_dataset(DATA_DIR, "health", batch_size=16)
-    class_names = train_ds.class_names
-    model = build_health_model()
-
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=2, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=1),
-    ]
-
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=[
+        tf.keras.metrics.BinaryAccuracy(name="accuracy"),
+        tf.keras.metrics.Precision(name="precision"),
+        tf.keras.metrics.Recall(name="recall"),
+        tf.keras.metrics.AUC(name="roc_auc"),
+    ])
     model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=5,
-        callbacks=callbacks,
-        verbose=1,
+        datasets["train"], validation_data=datasets["val"], epochs=epochs,
+        callbacks=[tf.keras.callbacks.EarlyStopping(patience=3, restore_best_weights=True)],
     )
-
-    test_loss, test_accuracy = model.evaluate(test_ds, verbose=0)
-    save_class_names(class_names, MODEL_DIR / "health_labels.json")
-    model_path = MODEL_DIR / "health_model.keras"
-    model.save(model_path)
-    print(f"Health model saved to {model_path}")
-    print(f"Test accuracy: {test_accuracy:.4f}")
-    return str(model_path), class_names
+    results = model.evaluate(datasets["test"], return_dict=True, verbose=0)
+    with TemporaryDirectory(dir=SKIN_MODEL.parent) as folder:
+        candidate = Path(folder) / SKIN_MODEL.name
+        model.save(candidate)
+        candidate.replace(SKIN_MODEL)
+    return results
 
 
 if __name__ == "__main__":
-    train_health()
+    parser = argparse.ArgumentParser(description="Train a research model for visible cattle skin abnormalities.")
+    parser.add_argument("dataset", type=Path)
+    parser.add_argument("--epochs", type=int, default=12)
+    args = parser.parse_args()
+    if args.epochs < 1:
+        parser.error("--epochs must be positive")
+    try:
+        metrics = train(args.dataset, args.epochs)
+    except ValueError as error:
+        parser.error(str(error))
+    print(json.dumps(metrics, indent=2))
+    print(f"Model saved to {SKIN_MODEL}")
