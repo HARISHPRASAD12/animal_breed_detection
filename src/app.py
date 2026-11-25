@@ -8,13 +8,14 @@ from pathlib import Path
 
 import cv2
 import streamlit as st
-from PIL import Image, ImageOps, UnidentifiedImageError
 
 from detector import MODEL_PATH, CattleDetector, annotate
 from health import PREDICTION_MODEL, classify_crops, SKIN_MODEL, indicator_scores, load_health_model, skin_result
+from photo_upload import InvalidPhoto, read_photo
 
 VISIBLE_SIGNS = ("Skin mark or wound", "Visible swelling", "Eye or nasal discharge")
 UI_DIR = Path(__file__).resolve().parent / "ui"
+MAX_SCREENED_CATTLE = 50
 
 
 @st.cache_resource
@@ -72,7 +73,7 @@ with st.container(border=True, key="upload-panel"):
     else:
         uploaded = st.file_uploader(
             "Choose a photo", type=["jpg", "jpeg", "png", "webp"],
-            max_upload_size=15, label_visibility="collapsed",
+            label_visibility="collapsed",
         )
     with st.popover("Detection settings", icon=":material/tune:"):
         threshold = st.slider(
@@ -84,13 +85,9 @@ if uploaded is None:
     st.stop()
 
 try:
-    with Image.open(uploaded) as source:
-        if source.width * source.height > 25_000_000:
-            st.error("Choose a photo with at most 25 megapixels.")
-            st.stop()
-        image = ImageOps.exif_transpose(source).convert("RGB")
-except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-    st.error("The photo could not be opened. Choose a valid JPG, PNG, or WebP image.")
+    image = read_photo(uploaded)
+except InvalidPhoto as error:
+    st.error(str(error))
     st.stop()
 
 if not MODEL_PATH.is_file():
@@ -108,6 +105,10 @@ try:
 except cv2.error:
     st.error("The detector could not process this image. Verify the ONNX file against the checksum in the README.")
     st.stop()
+
+if len(detections) > MAX_SCREENED_CATTLE:
+    detections = sorted(detections, key=lambda detection: detection.score, reverse=True)[:MAX_SCREENED_CATTLE]
+    st.info(f"Showing the {MAX_SCREENED_CATTLE} highest-scoring detections. Use closer photos to review more cattle.")
 
 review_links = (
     '<a href="#health-review">Review animals</a><a href="#screening-records">Records and exports</a>'

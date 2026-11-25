@@ -11,7 +11,7 @@ IMAGE_SIZE = (224, 224)
 def load_health_model(path: Path):
     import tensorflow as tf
 
-    return tf.keras.models.load_model(path, compile=False)
+    return tf.keras.models.load_model(path, compile=False, safe_mode=True)
 
 
 def indicator_scores(model, images: list[Image.Image]) -> list[float]:

@@ -1,3 +1,9 @@
+[server]
+maxUploadSize = 15
+
+[client]
+showErrorDetails = "none"
+
 [theme]
 base = "dark"
 primaryColor = "#00743B"
