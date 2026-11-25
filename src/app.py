@@ -38,7 +38,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 st.html(UI_DIR / "fieldscan.css")
-st.html("""
+intro = st.empty()
+intro.html("""
     <section class="fieldscan-hero" aria-labelledby="fieldscan-title">
         <div class="fieldscan-hero__inner">
             <div class="fieldscan-brand"><span aria-hidden="true"></span>Animal<span class="fieldscan-brand__accent">AI</span></div>
@@ -60,11 +61,19 @@ st.html("""
 """)
 
 with st.container(border=True, key="upload-panel"):
-    st.header("Upload a cattle photo", anchor="upload-photo")
-    uploaded = st.file_uploader(
-        "Choose a photo", type=["jpg", "jpeg", "png", "webp"],
-        max_upload_size=15, label_visibility="collapsed",
+    st.header("Add a cattle photo", anchor="upload-photo")
+    source_mode = st.segmented_control(
+        "Photo source", ["Choose file", "Use camera"], default="Choose file",
+        required=True, label_visibility="collapsed", width="stretch",
     )
+    if source_mode == "Use camera":
+        uploaded = st.camera_input("Take a cattle photo")
+        st.caption("Camera capture requires HTTPS or localhost and camera permission. You can also choose a saved photo.")
+    else:
+        uploaded = st.file_uploader(
+            "Choose a photo", type=["jpg", "jpeg", "png", "webp"],
+            max_upload_size=15, label_visibility="collapsed",
+        )
     with st.popover("Detection settings", icon=":material/tune:"):
         threshold = st.slider(
             "Minimum detection score", 0.10, 0.90, 0.35, 0.05,
@@ -100,9 +109,22 @@ except cv2.error:
     st.error("The detector could not process this image. Verify the ONNX file against the checksum in the README.")
     st.stop()
 
+review_links = (
+    '<a href="#health-review">Review animals</a><a href="#screening-records">Records and exports</a>'
+    if detections else ""
+)
+intro.html(f"""
+    <nav class="fieldscan-nav" aria-label="Photo workspace">
+        <strong>AnimalAI</strong>
+        <a href="#upload-photo">Change photo</a>
+        <a href="#detection-preview">Preview</a>
+        {review_links}
+    </nav>
+""")
+
 result = annotate(image, detections)
 with st.container(border=True, key="preview-panel"):
-    st.header("Detection preview", anchor=False)
+    st.header("Detection preview", anchor="detection-preview")
     if detections:
         count = len(detections)
         st.badge(f"{count} {'animal' if count == 1 else 'animals'} detected", color="yellow")
@@ -111,7 +133,7 @@ with st.container(border=True, key="preview-panel"):
     st.image(result, width="stretch", alt=f"Uploaded photo with {len(detections)} cattle detections")
 
 if detections:
-    st.header("Health screening", anchor=False)
+    st.header("Health screening", anchor="health-review")
     st.caption("Review visible signs in the photo. Consult a veterinarian for health concerns.")
     predictions = ["Model unavailable"] * len(detections)
     if SKIN_MODEL.is_file():
@@ -173,6 +195,7 @@ if detections:
 
     options = ("Unsure or obscured", "Visible", "None observed")
     with review_column.form(f"signs-{image_id}-{box}"):
+        st.subheader(f"Observations for cattle {selected + 1}")
         previous = reviews.get(box, {})
         observation = {
             sign: st.selectbox(sign, options, index=options.index(previous.get(sign, options[0])))
@@ -182,7 +205,7 @@ if detections:
             reviews[box] = observation
             st.success("Observations saved for this photo.")
 
-    st.header("Screening records", anchor=False)
+    st.header("Screening records", anchor="screening-records")
     rows = [
         {"Cattle": index, "Score (%)": round(detection.score * 100, 1),
          "Left": detection.box[0], "Top": detection.box[1],
@@ -192,6 +215,8 @@ if detections:
          **{sign: reviews.get(detection.box, {}).get(sign, "Not reviewed") for sign in VISIBLE_SIGNS}}
         for index, detection in enumerate(detections, 1)
     ]
+    reviewed_count = sum(item.box in reviews for item in detections)
+    st.progress(reviewed_count / len(detections), text=f"Observations saved for {reviewed_count} of {len(detections)} animals")
     st.dataframe(
         rows, hide_index=True, width="stretch",
         column_order=["Cattle", "Score (%)", *estimates[0], *VISIBLE_SIGNS, *(["Automatic skin screening"] if SKIN_MODEL.is_file() else []), "Left", "Top", "Right", "Bottom"],

@@ -88,3 +88,13 @@ The Streamlit test runner exercised a real cattle upload, threshold changes, the
 - [YOLOX paper](https://arxiv.org/abs/2107.08430)
 - [OpenCV Zoo implementation and model license](https://github.com/opencv/opencv_zoo/tree/main/models/object_detection_yolox)
 - [COCO dataset](https://cocodataset.org/)
+
+## Open on a phone
+
+Connect the phone and computer to the same trusted Wi-Fi network. From the project directory, start the server with the command below, then open the Network URL printed in the terminal on the phone. Uploaded photos are processed on the computer.
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run src/app.py --server.address 0.0.0.0
+```
+
+Choose **Choose file** to select a saved photo. **Use camera** works when the app is served over HTTPS and the browser has camera permission. For a local Wi-Fi HTTP address, take the photo with the phone camera first, then select the saved file.
