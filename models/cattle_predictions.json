@@ -1,0 +1,72 @@
+{
+  "breed": {
+    "classes": [
+      "Ayrshire",
+      "Brown Swiss",
+      "Holstein Friesian",
+      "Jersey",
+      "Red Dane"
+    ],
+    "train": 452,
+    "test": 113,
+    "accuracy": 0.7522123893805309,
+    "balanced_accuracy": 0.7496982097186702,
+    "confusion_matrix": [
+      [
+        19,
+        1,
+        2,
+        0,
+        3
+      ],
+      [
+        1,
+        18,
+        1,
+        3,
+        0
+      ],
+      [
+        3,
+        0,
+        20,
+        1,
+        0
+      ],
+      [
+        1,
+        3,
+        1,
+        16,
+        3
+      ],
+      [
+        2,
+        2,
+        1,
+        0,
+        12
+      ]
+    ]
+  },
+  "disease": {
+    "classes": [
+      "healthycows",
+      "lumpycows"
+    ],
+    "train": 748,
+    "test": 187,
+    "accuracy": 0.8449197860962567,
+    "balanced_accuracy": 0.8438511326860841,
+    "confusion_matrix": [
+      [
+        88,
+        15
+      ],
+      [
+        14,
+        70
+      ]
+    ]
+  }
+}

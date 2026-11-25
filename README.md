@@ -1,4 +1,4 @@
-﻿# Cattle Detection and Health Screening
+# Cattle Detection and Health Screening
 
 A computer vision project that locates and counts visible cattle in photographs. The Streamlit interface accepts JPG, PNG and WebP uploads, displays cattle bounding boxes and scores, and exports annotated images and CSV records.
 
@@ -35,7 +35,15 @@ c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063
 
 Select a detected animal and review its crop. Record visible skin marks or wounds, swelling, and eye or nasal discharge. Choose **Unsure or obscured** when the relevant area cannot be assessed. Save observations before exporting the screening CSV. Photo screening covers visible signs and cannot establish overall health or diagnose disease. [Visual signs of cattle illness](https://extension.msstate.edu/publications/identifying-sick-or-injured-cattle)
 
-### Automatic skin screening model
+### Trained breed and lumpy skin disease predictions
+
+Each detected animal is cropped and classified by an ImageNet MobileNetV2 feature extractor with two supervised classification heads. Results appear beside the selected animal and in the downloadable CSV. The disease head distinguishes the dataset labels `healthycows` and `lumpycows`. Its negative result cannot establish general health. Breed estimates always select among the five training breeds.
+
+To reproduce training, install `requirements-health.txt` and run `python src/train_predictions.py` from the project environment. Training uses `data/cow-lumpy.zip` and `data/cattle-breeds.zip`. [Disease photos referenced by both notebooks](https://www.kaggle.com/datasets/shivamagarwal29/cow-lumpy-disease-dataset) · [Additional breed-labeled photos](https://www.kaggle.com/datasets/anandkumarsahu09/cattle-breeds-dataset)
+
+Training uses a seeded stratified 80/20 image split after removing duplicate resized images and filenames ending in `_c`. See `models/cattle_predictions.json` for class ordering, counts and confusion matrices (rows are reference labels). Animal identities and farm groupings were unavailable. The test images evaluate classification separately from cattle detection, and scores on new farms may differ.
+
+### Optional additional skin abnormality model
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-health.txt

@@ -1,7 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from io import BytesIO, StringIO
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from detector import MODEL_PATH, CattleDetector, annotate
-from health import SKIN_MODEL, indicator_scores, load_health_model, skin_result
+from health import PREDICTION_MODEL, classify_crops, SKIN_MODEL, indicator_scores, load_health_model, skin_result
 
 VISIBLE_SIGNS = ("Skin mark or wound", "Visible swelling", "Eye or nasal discharge")
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -87,9 +88,14 @@ if not MODEL_PATH.is_file():
     st.error("The model file is missing. Follow the model setup instructions in the project README.")
     st.stop()
 
+image_id = hashlib.sha256(uploaded.getbuffer()).hexdigest()
+detection_key = (image_id, threshold, MODEL_PATH.stat().st_mtime_ns)
 try:
-    with st.spinner("Detecting cattle..."):
-        detections = load_detector().detect(image, threshold)
+    if st.session_state.get("detection_key") != detection_key:
+        with st.spinner("Detecting cattle..."):
+            st.session_state.detections = load_detector().detect(image, threshold)
+        st.session_state.detection_key = detection_key
+    detections = st.session_state.detections
 except cv2.error:
     st.error("The detector could not process this image. Verify the ONNX file against the checksum in the README.")
     st.stop()
@@ -120,10 +126,29 @@ if detections:
             predictions = [skin_result(score) for score in scores]
         except (ImportError, OSError, RuntimeError, ValueError):
             st.warning("Automatic skin screening could not run. You can still record observations.")
-    else:
-        st.info("Automatic skin screening requires a model trained on labeled cattle photos. You can record observations below.")
 
-    image_id = hashlib.sha256(uploaded.getbuffer()).hexdigest()
+    try:
+        metadata_path = PREDICTION_MODEL.with_suffix(".json")
+        model_version = PREDICTION_MODEL.stat().st_mtime_ns
+        estimate_key = (image_id, tuple(item.box for item in detections), model_version, metadata_path.stat().st_mtime_ns)
+        if st.session_state.get("estimate_key") != estimate_key:
+            with st.spinner("Estimating breed and screening for lumpy skin disease..."):
+                model = cached_health_model(PREDICTION_MODEL, model_version)
+                metadata = json.loads(metadata_path.read_text())
+                breeds = metadata["breed"]["classes"]
+                estimates = []
+                for start in range(0, len(detections), 16):
+                    crops = [image.crop(item.box) for item in detections[start:start + 16]]
+                    estimates.extend(classify_crops(model, crops, breeds))
+                st.session_state.estimates = estimates
+                st.session_state.estimate_key = estimate_key
+        estimates = st.session_state.estimates
+    except (ImportError, OSError, ValueError, KeyError, RuntimeError):
+        st.warning("Breed and disease predictions are unavailable. You can still record and export observations.")
+        estimates = [{"Breed estimate": "Unavailable", "Breed score (%)": None,
+                      "Lumpy skin screening": "Unavailable", "Lumpy class score (%)": None}
+                     for _ in detections]
+
     if st.session_state.get("review_image") != image_id:
         st.session_state.review_image = image_id
         st.session_state.health_reviews = {}
@@ -136,6 +161,13 @@ if detections:
     photo_column, review_column = st.columns([1, 1.25], gap="medium")
     with photo_column:
         st.image(image.crop(box), width="stretch", alt=f"Cropped photo of cattle {selected + 1}")
+        estimate = estimates[selected]
+        st.write(f"**Breed estimate** · {estimate['Breed estimate']}")
+        st.write(f"**Disease screening** · {estimate['Lumpy skin screening']}")
+        if estimate["Breed score (%)"] is not None:
+            st.caption(f"Breed model score {estimate['Breed score (%)']:.1f}% · "
+                       f"Lumpy skin disease class score {estimate['Lumpy class score (%)']:.1f}%")
+        st.caption("Research model covering five breeds and one disease. A veterinarian must confirm suspected cases.")
         if predictions[selected] != "Model unavailable":
             st.caption(f"Skin screening — {predictions[selected]}")
 
@@ -155,13 +187,14 @@ if detections:
         {"Cattle": index, "Score (%)": round(detection.score * 100, 1),
          "Left": detection.box[0], "Top": detection.box[1],
          "Right": detection.box[2], "Bottom": detection.box[3],
-         "Automatic skin screening": predictions[index - 1],
+         **estimates[index - 1],
+         **({"Automatic skin screening": predictions[index - 1]} if SKIN_MODEL.is_file() else {}),
          **{sign: reviews.get(detection.box, {}).get(sign, "Not reviewed") for sign in VISIBLE_SIGNS}}
         for index, detection in enumerate(detections, 1)
     ]
     st.dataframe(
         rows, hide_index=True, width="stretch",
-        column_order=["Cattle", "Score (%)", *VISIBLE_SIGNS, "Automatic skin screening", "Left", "Top", "Right", "Bottom"],
+        column_order=["Cattle", "Score (%)", *estimates[0], *VISIBLE_SIGNS, *(["Automatic skin screening"] if SKIN_MODEL.is_file() else []), "Left", "Top", "Right", "Bottom"],
     )
     csv_output = StringIO()
     writer = csv.DictWriter(csv_output, fieldnames=list(rows[0]))
